@@ -1,9 +1,3 @@
-# This script toggles Edge browser bookmarks bar between icons and icons+labels
-# Script toggles bookmark's name field to "" to hide or show label
-# On: Show icons only | Off: Show icons and labels
-# ATTENTION: Closes Edge temporarily, and reopens it during toggle. 
-# Backup of bookmarks/icons kept
-
 param(
     [ValidateSet("On", "Off", "Toggle")]
     [string]$Mode = "Toggle"
@@ -13,132 +7,118 @@ $bookmarksPath = "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Bookmarks"
 $backupDir = "$env:LOCALAPPDATA\EdgeBookmarksBackup"
 $stateFile = "$backupDir\current_state.txt"
 
-# Create backup directory
-if (-not (Test-Path $backupDir)) { New-Item -Path $backupDir -ItemType Directory -Force | Out-Null }
+# Ensure backup directory exists
+if (!(Test-Path $backupDir)) {
+    New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+}
 
-# Check if bookmarks file exists
-if (-not (Test-Path $bookmarksPath)) {
-    Write-Host "❌ Edge bookmarks file not found. Is Edge set up?" -ForegroundColor Red
+# 1. Make a backup of the current Bookmarks file with timestamp
+$timestamp = Get-Date -Format "yyyy.MM.dd.HH.mm.ss"
+$backupFileName = "Bookmarks_Backup_$timestamp"
+Copy-Item -Path $bookmarksPath -Destination "$backupDir\$backupFileName" -Force
+
+# Prompt user to confirm closing Edge
+Write-Host "`nTo toggle the bookmark icon state, Microsoft Edge needs to be closed." -ForegroundColor Yellow
+Write-Host "Any unsaved work or forms in Edge will be lost." -ForegroundColor Yellow
+$confirmation = Read-Host "Do you want to proceed and close Edge now? (y/N - default N)"
+
+if ($confirmation -ne 'y' -and $confirmation -ne 'Y') {
+    Write-Host "`nOperation cancelled by user. Edge will not be closed and no changes will be made." -ForegroundColor Red
     Start-Sleep -Seconds 3
+    exit 0
+}
+
+# 2. Close Edge
+Get-Process -Name "msedge" -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# Determine current state from the JSON file content itself
+if (Test-Path $bookmarksPath) {
+    try {
+        $content = Get-Content -Path $bookmarksPath -Raw -Encoding UTF8
+        # Check for any occurrence of "show_icon": false
+        if ($content -match '"show_icon"\s*:\s*false') {
+            $currentMode = "Off"
+        } else {
+            # If no "show_icon": false is found, assume it's On (or the file is malformed for this script)
+            # A more robust check would be if it contains "show_icon": true, but the initial state might not be standardized.
+            # Checking for the presence of "show_icon" at all could also work.
+            if ($content -match '"show_icon"\s*:\s*true') {
+                $currentMode = "On"
+            } else {
+                # If neither is found, we cannot determine the state, default to Off?
+                # This scenario might occur if the file is empty or corrupted.
+                Write-Host "Warning: Could not determine 'show_icon' state from bookmarks file. Assuming Off."
+                $currentMode = "Off"
+            }
+        }
+    } catch {
+        Write-Host "Error reading bookmarks file to determine state: $_"
+        exit 1
+    }
+} else {
+    Write-Host "Bookmarks file does not exist at path: $bookmarksPath"
     exit 1
 }
 
-# Backup original if missing
-if (-not (Test-Path "$backupDir\original_backup.json")) {
-    Copy-Item $bookmarksPath "$backupDir\original_backup.json" -Force
-    Write-Host "✅ Created permanent backup at $backupDir\original_backup.json" -ForegroundColor Green
-}
 
-# Determine current state
-$currentMode = if (Test-Path $stateFile) { Get-Content $stateFile -TotalCount 1 } else { "Off" }
-
-# Decide target mode
+# Decide target mode based on input and current state
 if ($Mode -eq "Toggle") {
     $targetMode = if ($currentMode -eq "On") { "Off" } else { "On" }
 } else {
     $targetMode = $Mode
 }
 
+# Check if action is needed
 if ($currentMode -eq $targetMode) {
-    $msg = if ($targetMode -eq "On") { "already ICONS-ONLY" } else { "already SHOWING LABELS" }
-    Write-Host "ℹ️  Bookmarks bar is $msg. No changes needed." -ForegroundColor Cyan
+    $msg = if ($targetMode -eq "On") { "already ICONS-ONLY (show_icon: false)" } else { "already SHOWING LABELS (show_icon: true)" }
+    Write-Host "INFO: Bookmarks bar is $msg. No changes needed."
     Start-Sleep -Seconds 2
+    # Reopen Edge even if no change was made
+    Start-Process msedge.exe -ArgumentList "--new-window" -ErrorAction SilentlyContinue
     exit 0
 }
 
-# --- SAFELY CLOSE EDGE ---
-Write-Host "`n⚠️  PREPARING TO CLOSE MICROSOFT EDGE..." -ForegroundColor Yellow
-Write-Host "   (Unsaved form data may be lost. Save your work first!)" -ForegroundColor DarkYellow
-Write-Host "`nClosing in: " -NoNewline -ForegroundColor Cyan
-
-# 5-second countdown with abort option
-for ($i = 5; $i -gt 0; $i--) {
-    Write-Host "$i " -NoNewline -ForegroundColor Magenta
-    Start-Sleep -Seconds 1
-    if ([Console]::KeyAvailable) {
-        $key = [Console]::ReadKey($true)
-        if ($key.Key -eq 'C') {
-            Write-Host "`n`n🛑 Operation cancelled by user. Exiting." -ForegroundColor Red
-            exit 1
-        }
-    }
-}
-Write-Host "`n"
-
-# Force-close Edge processes
-$edgeProcs = Get-Process msedge -ErrorAction SilentlyContinue
-if ($edgeProcs) {
-    Stop-Process -Name msedge -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2  # Allow processes to terminate
-    
-    # Verify closure
-    if (Get-Process msedge -ErrorAction SilentlyContinue) {
-        Write-Host "❌ Could not fully close Edge. Please close manually and rerun." -ForegroundColor Red
-        Start-Sleep -Seconds 3
-        exit 1
-    }
-    Write-Host "✅ Edge closed successfully." -ForegroundColor Green
-} else {
-    Write-Host "ℹ️  Edge was not running." -ForegroundColor Cyan
-}
-
-# --- TOGGLE BOOKMARKS ---
+# Read the current bookmarks file content
 try {
-    $bookmarks = Get-Content $bookmarksPath -Raw | ConvertFrom-Json
+    $bookmarksContent = Get-Content -Path $bookmarksPath -Raw -Encoding UTF8
 } catch {
-    Write-Host "❌ Failed to read bookmarks. File may be locked." -ForegroundColor Red
+    Write-Host "ERROR: Failed to read bookmarks. File may be locked. $_"
     Start-Sleep -Seconds 3
+    # Reopen Edge before exiting
+    Start-Process msedge.exe -ArgumentList "--new-window" -ErrorAction SilentlyContinue
     exit 1
 }
 
-# Backup current state
-$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-Copy-Item $bookmarksPath "$backupDir\backup_$timestamp.json" -Force
-
+# 3. If current state is Off -> set to On (show_icon: true becomes show_icon: false)
 if ($targetMode -eq "On") {
-    # Icons Only: Blank names
-    $originalNames = @()
-    foreach ($child in $bookmarks.roots.bookmark_bar.children) {
-        if ($child.name -and $child.type -eq "url") {
-            $originalNames += [PSCustomObject]@{ id = $child.id; name = $child.name }
-            $child.name = ""
-        }
-    }
-    $originalNames | ConvertTo-Json | Set-Content "$backupDir\name_mapping.json" -Force
-    $actionText = "ICONS ONLY (labels hidden)"
-} else {
-    # Restore labels
-    if (Test-Path "$backupDir\name_mapping.json") {
-        $mapping = Get-Content "$backupDir\name_mapping.json" | ConvertFrom-Json
-        $nameMap = @{}
-        foreach ($item in $mapping) { $nameMap[$item.id] = $item.name }
-        
-        foreach ($child in $bookmarks.roots.bookmark_bar.children) {
-            if ($child.id -and $nameMap.ContainsKey($child.id)) {
-                $child.name = $nameMap[$child.id]
-            }
-        }
-    } else {
-        # Fallback to original backup
-        $bookmarks = Get-Content "$backupDir\original_backup.json" -Raw | ConvertFrom-Json
-    }
-    $actionText = "ICONS + LABELS"
+    # Replace "show_icon": true with "show_icon": false
+    $updatedContent = $bookmarksContent -replace '(?<="show_icon"\s*:\s*)true', 'false'
+    $actionText = "ICONS-ONLY (show_icon: false)"
+}
+# 4. If current state is On -> set to Off (show_icon: false becomes show_icon: true)
+else {
+    # Replace "show_icon": false with "show_icon": true
+    $updatedContent = $bookmarksContent -replace '(?<="show_icon"\s*:\s*)false', 'true'
+    $actionText = "SHOWING LABELS (show_icon: true)"
 }
 
-# Save changes
+# Write the updated content back to the file
 try {
-    $bookmarks | ConvertTo-Json -Depth 100 | Set-Content $bookmarksPath -Force
-    Set-Content $stateFile $targetMode -Force
+    Set-Content -Path $bookmarksPath -Value $updatedContent -Encoding UTF8 -Force
+    Set-Content -Path $stateFile -Value $targetMode -Encoding UTF8 -Force
 } catch {
-    Write-Host "❌ Failed to write bookmarks file." -ForegroundColor Red
+    Write-Host "ERROR: Failed to write bookmarks file. $_"
     Start-Sleep -Seconds 3
+    # Reopen Edge before exiting
+    Start-Process msedge.exe -ArgumentList "--new-window" -ErrorAction SilentlyContinue
     exit 1
 }
 
-# --- REOPEN EDGE (optional but user-friendly) ---
+# 5. Restart Edge
 Start-Process msedge.exe -ArgumentList "--new-window" -ErrorAction SilentlyContinue
 
-# Final feedback
-Write-Host "`n✅ SUCCESS! Bookmarks bar now shows: $actionText" -ForegroundColor Green
-Write-Host "`nℹ️  Edge has been reopened automatically." -ForegroundColor Cyan
+# 6. Success message
+Write-Host ""
+Write-Host "SUCCESS! Bookmarks bar now set to: $actionText"
+Write-Host "INFO: Edge has been restarted."
 Start-Sleep -Seconds 3
