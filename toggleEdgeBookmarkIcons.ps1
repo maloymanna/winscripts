@@ -1,7 +1,18 @@
 param(
     [ValidateSet("On", "Off", "Toggle")]
-    [string]$Mode = "Toggle"
+    [string]$Mode = "Toggle",
+    
+    # Add a switch parameter to bypass confirmation
+    [switch]$Off
 )
+
+# If the -Off switch is used, set Mode to "Off" and bypass confirmation
+if ($Off) {
+    $Mode = "Off"
+    $bypassConfirmation = $true
+} else {
+    $bypassConfirmation = $false
+}
 
 $bookmarksPath = "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Bookmarks"
 $backupDir = "$env:LOCALAPPDATA\EdgeBookmarksBackup"
@@ -17,15 +28,17 @@ $timestamp = Get-Date -Format "yyyy.MM.dd.HH.mm.ss"
 $backupFileName = "Bookmarks_Backup_$timestamp"
 Copy-Item -Path $bookmarksPath -Destination "$backupDir\$backupFileName" -Force
 
-# Prompt user to confirm closing Edge
-Write-Host "`nTo toggle the bookmark icon state, Microsoft Edge needs to be closed." -ForegroundColor Yellow
-Write-Host "Any unsaved work or forms in Edge will be lost." -ForegroundColor Yellow
-$confirmation = Read-Host "Do you want to proceed and close Edge now? (y/N - default N)"
+# Prompt user to confirm closing Edge only if bypassConfirmation is false
+if (-not $bypassConfirmation) {
+    Write-Host "`nTo toggle the bookmark icon state, Microsoft Edge needs to be closed." -ForegroundColor Yellow
+    Write-Host "Any unsaved work or forms in Edge will be lost." -ForegroundColor Yellow
+    $confirmation = Read-Host "Do you want to proceed and close Edge now? (y/N - default N)"
 
-if ($confirmation -ne 'y' -and $confirmation -ne 'Y') {
-    Write-Host "`nOperation cancelled by user. Edge will not be closed and no changes will be made." -ForegroundColor Red
-    Start-Sleep -Seconds 3
-    exit 0
+    if ($confirmation -ne 'y' -and $confirmation -ne 'Y') {
+        Write-Host "`nOperation cancelled by user. Edge will not be closed and no changes will be made." -ForegroundColor Red
+        Start-Sleep -Seconds 3
+        exit 0
+    }
 }
 
 # 2. Close Edge
