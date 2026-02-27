@@ -1,3 +1,4 @@
+# Define valid parameters
 param(
     [ValidateSet("On", "Off", "Toggle")]
     [string]$Mode = "Toggle",
@@ -5,6 +6,59 @@ param(
     # Add a switch parameter to bypass confirmation
     [switch]$Off
 )
+
+# Check for invalid parameters/arguments
+$validParameters = @('Mode', 'Off', 'Help')
+foreach ($arg in $args) {
+    # Arguments typically start with - or --
+    if ($arg -match '^[-]{1,2}(.+)') {
+        $paramName = $matches[1]
+        # Handle common help argument variations that PowerShell might not auto-catch here
+        if ($paramName -in @('h', 'help', '?')) {
+            # Let PowerShell's built-in help handle this by calling Get-Help indirectly or just showing usage
+            # Or just display usage and exit
+            Write-Host "Usage:" -ForegroundColor Yellow
+            Write-Host "  .\toggleEdgeBookmarkIcons.ps1 [-Mode <On|Off|Toggle>] [-Off]" -ForegroundColor White
+            Write-Host "" -ForegroundColor White
+            Write-Host "Parameters:" -ForegroundColor Yellow
+            Write-Host "  -Mode <On|Off|Toggle>  Sets the desired state. Default is 'Toggle'." -ForegroundColor White
+            Write-Host "  -Off                   Shortcut for '-Mode Off' with no confirmation prompt." -ForegroundColor White
+            Write-Host "  -? or -Help            Show this help message." -ForegroundColor White
+            Write-Host "" -ForegroundColor White
+            Write-Host "Examples:" -ForegroundColor Yellow
+            Write-Host "  .\toggleEdgeBookmarkIcons.ps1 -Mode Toggle    # Toggle the current state (asks for confirmation)" -ForegroundColor White
+            Write-Host "  .\toggleEdgeBookmarkIcons.ps1 -Mode Off       # Turn OFF labels (asks for confirmation)" -ForegroundColor White
+            Write-Host "  .\toggleEdgeBookmarkIcons.ps1 -Mode On        # Turn ON labels (asks for confirmation)" -ForegroundColor White
+            Write-Host "  .\toggleEdgeBookmarkIcons.ps1 -Off            # Turn OFF labels (no confirmation)" -ForegroundColor White
+            exit 0
+        }
+        # Check if the parameter name is not in our valid list
+        elseif ($paramName -notin $validParameters) {
+            Write-Host "ERROR: Invalid parameter '$arg' provided." -ForegroundColor Red
+            Write-Host "" -ForegroundColor White
+            Write-Host "Usage:" -ForegroundColor Yellow
+            Write-Host "  .\toggleEdgeBookmarkIcons.ps1 [-Mode <On|Off|Toggle>] [-Off]" -ForegroundColor White
+            Write-Host "" -ForegroundColor White
+            Write-Host "Parameters:" -ForegroundColor Yellow
+            Write-Host "  -Mode <On|Off|Toggle>  Sets the desired state. Default is 'Toggle'." -ForegroundColor White
+            Write-Host "  -Off                   Shortcut for '-Mode Off' with no confirmation prompt." -ForegroundColor White
+            Write-Host "  -? or -Help            Show this help message." -ForegroundColor White
+            Write-Host "" -ForegroundColor White
+            Write-Host "Examples:" -ForegroundColor Yellow
+            Write-Host "  .\toggleEdgeBookmarkIcons.ps1 -Mode Toggle    # Toggle the current state (asks for confirmation)" -ForegroundColor White
+            Write-Host "  .\toggleEdgeBookmarkIcons.ps1 -Mode Off       # Turn OFF labels (asks for confirmation)" -ForegroundColor White
+            Write-Host "  .\toggleEdgeBookmarkIcons.ps1 -Mode On        # Turn ON labels (asks for confirmation)" -ForegroundColor White
+            Write-Host "  .\toggleEdgeBookmarkIcons.ps1 -Off            # Turn OFF labels (no confirmation)" -ForegroundColor White
+            exit 1
+        }
+    }
+    # If it doesn't match the pattern of a parameter, it could be a positional argument, which we don't accept for $Mode.
+    # Since $Mode has a default and is explicitly defined, passing it positionally might work based on param order,
+    # but for strictness, we could consider any leftover $args after handling known switches as invalid.
+    # However, PowerShell's native parsing usually handles this. The primary goal is catching unknown switches like -SomeInvalidOption.
+    # The above loop specifically targets "-*" style inputs that aren't recognized.
+}
+
 
 # If the -Off switch is used, set Mode to "Off" and bypass confirmation
 if ($Off) {
